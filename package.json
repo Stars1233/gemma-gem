@@ -21,7 +21,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^4.1.0",
-    "@kessler/gemma-agent": "^1.0.0",
+    "@kessler/gemma-agent": "^3.0.0",
     "marked": "^17.0.5"
   }
 }

@@ -6,6 +6,7 @@ import {
   env,
 } from '@huggingface/transformers'
 import type { ModelBackend, GenerateOptions } from '@kessler/gemma-agent'
+import { ToolResultImage, ToolResultAudio } from '@kessler/gemma-agent'
 import { log } from '@/shared/logger'
 import { MODELS, DEFAULT_MODEL_ID, type ModelId } from '@/shared/models'
 
@@ -142,14 +143,25 @@ export class GemmaModelHost implements ModelBackend {
       throw new Error('Model not loaded')
     }
 
-    log.debug('Prompt length:', prompt.length, 'hasImage:', !!options?.imageDataUrl)
+    const hasMedia = options?.media && options.media.length > 0
+    log.debug('Prompt length:', prompt.length, 'hasMedia:', hasMedia)
 
     log.debug('Step 1: tokenizing')
     let inputs: any
     try {
-      if (options?.imageDataUrl) {
-        const image = await load_image(options.imageDataUrl)
-        inputs = await this.processor(prompt, image, null, { add_special_tokens: false })
+      if (hasMedia) {
+        const images = []
+        const audios = []
+        for (const m of options!.media!) {
+          if (m instanceof ToolResultImage) images.push(await load_image(m.content))
+          if (m instanceof ToolResultAudio) audios.push(m.content)
+        }
+        inputs = await this.processor(
+          prompt,
+          images.length > 0 ? (images.length === 1 ? images[0] : images) : null,
+          audios.length > 0 ? (audios.length === 1 ? audios[0] : audios) : null,
+          { add_special_tokens: false },
+        )
       } else {
         inputs = this.processor.tokenizer(prompt, {
           add_special_tokens: false,
@@ -208,13 +220,18 @@ export class GemmaModelHost implements ModelBackend {
     log.debug('Step 3: generating')
     this.abortController = new AbortController()
     try {
-      await this.model.generate({
+      const output = await this.model.generate({
         ...inputs,
         max_new_tokens: options?.maxTokens ?? 1024,
         do_sample: false,
         streamer,
         abort_signal: this.abortController.signal,
       })
+
+      // Dispose output tensors (native ONNX/WebGPU memory)
+      const out = output as any
+      if (out?.dispose) out.dispose()
+      else if (out?.data?.dispose) out.data.dispose()
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         log.info('Generation aborted by user')
@@ -224,6 +241,11 @@ export class GemmaModelHost implements ModelBackend {
       throw e
     } finally {
       this.abortController = null
+
+      // Dispose input tensors (native ONNX/WebGPU memory)
+      for (const key of Object.keys(inputs)) {
+        inputs[key]?.dispose?.()
+      }
     }
 
     log.debug('Raw output:', rawResult.slice(0, 300))

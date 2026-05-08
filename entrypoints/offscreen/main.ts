@@ -1,7 +1,7 @@
 import type { Message } from '@/shared/messages'
-import { Agent } from '@kessler/gemma-agent'
-import type { ToolDefinition } from '@kessler/gemma-agent'
-import { TOOL_DEFINITIONS } from '@/shared/tool-definitions'
+import { Agent, image, audio, maxTurns } from '@kessler/gemma-agent'
+import type { ToolDefinition, ToolResultValue } from '@kessler/gemma-agent'
+import { TOOL_DEFINITIONS, type ToolDefWithMedia } from '@/shared/tool-definitions'
 import { GemmaModelHost } from '@/offscreen/model-host'
 import { log } from '@/shared/logger'
 import { DEFAULT_MODEL_ID, type ModelId } from '@/shared/models'
@@ -99,10 +99,26 @@ let requestIdCounter = 0
 
 const TOOL_EXECUTION_TIMEOUT = 120000 // 2 minutes
 
+function wrapMediaValues(raw: Record<string, unknown>, def: ToolDefWithMedia): Record<string, ToolResultValue> {
+  if (!def.mediaKeys) return raw as Record<string, ToolResultValue>
+  const result: Record<string, ToolResultValue> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    const mediaType = def.mediaKeys[k]
+    if (mediaType === 'image' && typeof v === 'string') {
+      result[k] = image(v)
+    } else if (mediaType === 'audio' && typeof v === 'string') {
+      result[k] = audio(v)
+    } else {
+      result[k] = v as ToolResultValue
+    }
+  }
+  return result
+}
+
 function createTools(tabId: number): ToolDefinition[] {
   return TOOL_DEFINITIONS.map(def => ({
     ...def,
-    async execute(args: Record<string, unknown>): Promise<Record<string, unknown>> {
+    async execute(args: Record<string, unknown>): Promise<Record<string, ToolResultValue>> {
       const requestId = `tool_${++requestIdCounter}`
       log.info('Executing tool:', def.name, JSON.stringify(args))
 
@@ -123,9 +139,9 @@ function createTools(tabId: number): ToolDefinition[] {
       } satisfies Message)
 
       try {
-        const result = await resultPromise
-        log.debug('Tool result:', def.name, JSON.stringify(result).slice(0, 200))
-        return result as Record<string, unknown>
+        const raw = await resultPromise
+        log.debug('Tool result:', def.name, JSON.stringify(raw).slice(0, 200))
+        return wrapMediaValues(raw as Record<string, unknown>, def)
       } catch (e) {
         log.error('Tool execution failed:', def.name, e)
         return { error: e instanceof Error ? e.message : String(e) }
@@ -239,6 +255,7 @@ chrome.runtime.onMessage.addListener(async (message: Message) => {
           model: modelHost,
           tools: createTools(tabId),
           systemPrompt: buildSystemPrompt(pageContext),
+          historyStrategy: maxTurns(1000),
           maxIterations,
           thinking: enableThinking,
           logger: log,
