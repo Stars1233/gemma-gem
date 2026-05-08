@@ -83,6 +83,23 @@ All logs are prefixed with `[Gemma Gem]`. In development builds, info/debug/warn
 
 The offscreen document logs are the most useful — they show model loading, prompt construction, token counts, raw model output, and tool execution.
 
+## Hardware Requirements (WebGPU)
+
+> Estimated minimal requirements (not benchmarked on real devices)
+
+| | E2B (~500 MB) | E4B (~1.5 GB) |
+|---|---|---|
+| **GPU VRAM / Shared Memory** | 4 GB | 6 GB |
+| **System RAM** | 6-8 GB | 8-16 GB |
+| **Browser** | Chrome 113+ / Edge 113+ with WebGPU | Same |
+| **GPU Feature** | `shader-f16` required | Same |
+
+- **Integrated GPUs**: Intel Xe (Arc), Apple M1+, Qualcomm Adreno work with sufficient shared memory
+- **Discrete GPUs**: Any with 4 GB+ VRAM (e.g. GTX 1650, RX 6500 XT)
+- **Mobile**: iPhone A14+, Snapdragon 8 Gen 1+ (slow)
+- **Performance**: Slow on integrated GPUs, normal on mid-range discrete GPUs, fast on high-end GPUs
+- At long contexts (128K), KV cache adds 10-20% memory overhead on top of model weights
+
 ![Gemma Gem in action](screenshot.png)
 ![Gemma Gem in action](screenshot2.jpg)
 
